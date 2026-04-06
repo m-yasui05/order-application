@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>発注管理</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root {
+    --bg: #f7f5f0;
+    --surface: #ffffff;
+    --border: #e8e4dc;
+    --text: #2c2c2c;
+    --muted: #888;
+    --accent: #e8613a;
+    --accent2: #3a7be8;
+    --green: #2ecc71;
+    --red: #e74c3c;
+    --shadow: 0 2px 12px rgba(0,0,0,0.08);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Hiragino Sans', 'Noto Sans JP', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+  /* パスワード画面 */
+  #pw-screen {
+    position: fixed; inset: 0; background: var(--bg);
+    display: flex; align-items: center; justify-content: center; z-index: 9999;
+  }
+  .pw-box {
+    background: var(--surface); border-radius: 16px; padding: 40px;
+    box-shadow: var(--shadow); text-align: center; width: 320px;
+  }
+  .pw-box h1 { font-size: 22px; margin-bottom: 8px; }
+  .pw-box p { color: var(--muted); font-size: 13px; margin-bottom: 24px; }
+  .pw-box input {
+    width: 100%; padding: 12px 16px; border: 2px solid var(--border);
+    border-radius: 10px; font-size: 16px; outline: none; text-align: center;
+    letter-spacing: 4px; margin-bottom: 12px;
+  }
+  .pw-box input:focus { border-color: var(--accent); }
+  .pw-box button {
+    width: 100%; padding: 12px; background: var(--accent); color: white;
+    border: none; border-radius: 10px; font-size: 15px; cursor: pointer; font-weight: bold;
+  }
+  .pw-error { color: var(--red); font-size: 13px; margin-top: 8px; }
+
+  /* ヘッダー */
+  header {
+    background: var(--surface); border-bottom: 1px solid var(--border);
+    padding: 0 20px; height: 56px; display: flex; align-items: center;
+    justify-content: space-between; position: sticky; top: 0; z-index: 100;
+    box-shadow: 0 1px 8px rgba(0,0,0,0.06);
+  }
+  header h1 { font-size: 18px; font-weight: 700; }
+  header .store-select select {
+    padding: 7px 12px; border: 1.5px solid var(--border); border-radius: 8px;
+    font-size: 14px; background: var(--bg); cursor: pointer; outline: none;
+  }
+
+  /* メインレイアウト */
+  .container { max-width: 1100px; margin: 0 auto; padding: 24px 16px; }
+
+  /* タブ */
+  .tabs { display: flex; gap: 4px; margin-bottom: 24px; background: var(--surface);
+    border-radius: 12px; padding: 4px; box-shadow: var(--shadow); }
+  .tab-btn {
+    flex: 1; padding: 10px; border: none; background: none; border-radius: 9px;
+    cursor: pointer; font-size: 14px; font-weight: 600; color: var(--muted); transition: all 0.2s;
+  }
+  .tab-btn.active { background: var(--accent); color: white; }
+
+  /* カード */
+  .card { background: var(--surface); border-radius: 16px; padding: 20px; box-shadow: var(--shadow); margin-bottom: 16px; }
+
+  /* 新規発注フォーム */
+  .section-title { font-size: 16px; font-weight: 700; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+  .form-group { display: flex; flex-direction: column; gap: 6px; }
+  .form-group label { font-size: 12px; font-weight: 600; color: var(--muted); }
+  .form-group input, .form-group select, .form-group textarea {
+    padding: 10px 12px; border: 1.5px solid var(--border); border-radius: 10px;
+    font-size: 14px; outline: none; transition: border-color 0.2s; background: var(--bg);
+  }
+  .form-group input:focus, .form-group select:focus { border-color: var(--accent); background: white; }
+
+  /* 商品リスト */
+  .items-list { display: flex; flex-direction: column; gap: 10px; margin: 16px 0; }
+  .item-row {
+    background: var(--bg); border-radius: 12px; padding: 12px;
+    display: grid; grid-template-columns: 64px 1fr auto; gap: 12px; align-items: center;
+  }
+  .item-img-wrap { width: 64px; height: 64px; border-radius: 8px; overflow: hidden; background: var(--border); cursor: pointer; position: relative; }
+  .item-img-wrap img { width: 100%; height: 100%; object-fit: cover; }
+  .item-img-wrap .img-overlay {
+    position: absolute; inset: 0; background: rgba(0,0,0,0.4); display: flex;
+    align-items: center; justify-content: center; opacity: 0; transition: opacity 0.2s;
+    color: white; font-size: 11px; text-align: center;
+  }
+  .item-img-wrap:hover .img-overlay { opacity: 1; }
+  .item-img-placeholder { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 11px; text-align: center; padding: 4px; }
+  .item-details { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center; }
+  .item-name input { width: 100%; }
+  .item-numbers { display: flex; gap: 6px; }
+  .item-numbers input { width: 80px; }
+  .item-note input { font-size: 12px; color: var(--muted); }
+  .btn-remove { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 20px; padding: 4px 8px; border-radius: 6px; transition: all 0.2s; }
+  .btn-remove:hover { background: #fee; color: var(--red); }
+
+  /* ボタン */
+  .btn { padding: 10px 20px; border-radius: 10px; border: none; cursor: pointer; font-size: 14px; font-weight: 600; transition: all 0.2s; }
+  .btn-primary { background: var(--accent); color: white; }
+  .btn-primary:hover { opacity: 0.88; transform: translateY(-1px); }
+  .btn-secondary { background: var(--bg); border: 1.5px solid var(--border); color: var(--text); }
+  .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-add { width: 100%; padding: 12px; border: 2px dashed var(--border); background: none; border-radius: 12px; color: var(--muted); cursor: pointer; font-size: 14px; transition: all 0.2s; }
+  .btn-add:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* 発注履歴 */
+  .order-card {
+    background: var(--surface); border-radius: 14px; padding: 16px;
+    box-shadow: var(--shadow); margin-bottom: 12px; cursor: pointer;
+    border: 2px solid transparent; transition: all 0.2s;
+  }
+  .order-card:hover { border-color: var(--accent); }
+  .order-card-header { display: flex; justify-content: space-between; align-items: flex-start; }
+  .order-meta { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .order-badge { background: var(--bg); border-radius: 20px; padding: 4px 12px; font-size: 12px; font-weight: 600; }
+
+  /* 発注詳細モーダル */
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 1000;
+    display: flex; align-items: flex-start; justify-content: center; padding: 20px; overflow-y: auto;
+  }
+  .modal {
+    background: var(--surface); border-radius: 20px; width: 100%; max-width: 800px;
+    padding: 24px; margin: auto;
+  }
+  .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+  .btn-close { background: var(--bg); border: none; border-radius: 50%; width: 36px; height: 36px; cursor: pointer; font-size: 18px; }
+
+  /* サマリー印刷用 */
+  .summary-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; margin-top: 16px; }
+  .summary-item { background: var(--bg); border-radius: 12px; padding: 12px; text-align: center; }
+  .summary-item img { width: 100%; height: 120px; object-fit: cover; border-radius: 8px; margin-bottom: 8px; }
+  .summary-item .no-img { width: 100%; height: 120px; background: var(--border); border-radius: 8px; margin-bottom: 8px; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 12px; }
+  .summary-item .item-title { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+  .summary-item .item-price { color: var(--accent); font-weight: 700; font-size: 14px; }
+  .summary-item .item-qty { font-size: 12px; color: var(--muted); }
+  .summary-item .item-note-badge { font-size: 11px; color: var(--muted); margin-top: 4px; background: white; border-radius: 6px; padding: 3px 8px; }
+  .qty-badge { display: inline-block; background: var(--accent); color: white; border-radius: 20px; padding: 2px 10px; font-size: 12px; font-weight: 700; }
+
+  /* フィルター */
+  .filter-row { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+  .filter-row select, .filter-row input { padding: 8px 12px; border: 1.5px solid var(--border); border-radius: 8px; font-size: 13px; background: var(--surface); outline: none; }
+
+  /* CSV出力 */
+  .actions-row { display: flex; gap: 8px; justify-content: flex-end; margin-bottom: 16px; }
+
+  /* トースト */
+  .toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    background: #2c2c2c; color: white; padding: 12px 24px; border-radius: 100px;
+    font-size: 14px; z-index: 9999; opacity: 0; transition: opacity 0.3s;
+    pointer-events: none;
+  }
+  .toast.show { opacity: 1; }
+
+  /* ローディング */
+  .loading { text-align: center; padding: 40px; color: var(--muted); }
+
+  /* 画像アップロードモーダル */
+  .img-upload-modal {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 2000;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .img-upload-box {
+    background: white; border-radius: 16px; padding: 28px; width: 340px; text-align: center;
+  }
+  .img-upload-box h3 { margin-bottom: 16px; }
+  .img-drop-area {
+    border: 2px dashed var(--border); border-radius: 12px; padding: 32px 16px;
+    cursor: pointer; transition: all 0.2s; margin-bottom: 12px;
+  }
+  .img-drop-area:hover { border-color: var(--accent); background: #fff5f2; }
+  .img-drop-area input { display: none; }
+  .img-preview { width: 100%; height: 160px; object-fit: cover; border-radius: 8px; margin-bottom: 12px; }
+  .img-upload-btns { display: flex; gap: 8px; }
+
+  @media print {
+    header, .tabs, .filter-row, .actions-row, .btn, .order-card { display: none !important; }
+    .modal-overlay { position: static; background: none; padding: 0; }
+    .modal { box-shadow: none; border-radius: 0; }
+    .btn-close { display: none; }
+    body { background: white; }
+  }
+  @media (max-width: 600px) {
+    .form-row { grid-template-columns: 1fr; }
+    .item-details { grid-template-columns: 1fr; }
+    .item-numbers { flex-wrap: wrap; }
+  }
+</style>
+</head>
+<body>
+
+<!-- パスワード画面 -->
+<div id="pw-screen">
+  <div class="pw-box">
+    <h1>🐾 発注管理</h1>
+    <p>パスワードを入力してください</p>
+    <input type="password" id="pw-input" placeholder="••••••••••••" onkeydown="if(event.key==='Enter')checkPw()">
+    <button onclick="checkPw()">ログイン</button>
+    <div class="pw-error" id="pw-error"></div>
+  </div>
+</div>
+
+<!-- ヘッダー -->
+<header>
+  <h1>🐾 発注管理</h1>
+  <div class="store-select">
+    <select id="store-filter" onchange="onStoreChange()">
+      <option value="">店舗を選択</option>
+    </select>
+  </div>
+</header>
+
+<!-- メイン -->
+<div class="container">
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('new')">➕ 新規発注</button>
+    <button class="tab-btn" onclick="switchTab('history')">📋 発注履歴</button>
+  </div>
+
+  <!-- 新規発注 -->
+  <div id="tab-new">
+    <div class="card">
+      <div class="section-title">📅 発注情報</div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>店舗</label>
+          <select id="new-store">
+            <option value="">選択してください</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>発注日</label>
+          <input type="date" id="new-order-date">
+        </div>
+        <div class="form-group">
+          <label>納品予定日</label>
+          <input type="date" id="new-delivery-date">
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="section-title">📦 商品リスト</div>
+      <div class="items-list" id="items-list"></div>
+      <button class="btn-add" onclick="addItem()">＋ 商品を追加</button>
+    </div>
+
+    <div style="display:flex; gap:10px; justify-content:flex-end;">
+      <button class="btn btn-secondary" onclick="clearForm()">クリア</button>
+      <button class="btn btn-primary" onclick="submitOrder()">発注を登録する</button>
+    </div>
+  </div>
+
+  <!-- 発注履歴 -->
+  <div id="tab-history" style="display:none;">
+    <div class="filter-row">
+      <select id="hist-store" onchange="loadHistory()">
+        <option value="">すべての店舗</option>
+      </select>
+      <input type="date" id="hist-from" onchange="loadHistory()">
+      <span style="align-self:center; color:var(--muted)">〜</span>
+      <input type="date" id="hist-to" onchange="loadHistory()">
+    </div>
+    <div class="actions-row">
+      <button class="btn btn-secondary" onclick="exportCSV()">📊 CSV出力</button>
+    </div>
+    <div id="history-list"><div class="loading">読み込み中...</div></div>
+  </div>
+</div>
+
+<!-- 発注詳細モーダル -->
+<div class="modal-overlay" id="detail-modal" style="display:none;" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <div class="modal-header">
+      <div>
+        <div style="font-size:18px; font-weight:700;" id="modal-title"></div>
+        <div class="order-meta" id="modal-meta"></div>
+      </div>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <button class="btn btn-secondary" onclick="printSummary()" style="font-size:13px; padding:8px 14px;">🖨 印刷</button>
+        <button class="btn-close" onclick="closeModal()">✕</button>
+      </div>
+    </div>
+    <div id="modal-body"></div>
+  </div>
+</div>
+
+<!-- 画像アップロードモーダル -->
+<div class="img-upload-modal" id="img-modal" style="display:none;">
+  <div class="img-upload-box">
+    <h3>📷 商品画像</h3>
+    <div id="img-preview-wrap"></div>
+    <div class="img-drop-area" onclick="document.getElementById('img-file-input').click()">
+      <input type="file" id="img-file-input" accept="image/*" onchange="onImgSelected(event)">
+      <div>📁 クリックして画像を選択</div>
+      <div style="font-size:12px; color:var(--muted); margin-top:6px;">JPG / PNG / WebP</div>
+    </div>
+    <div class="img-upload-btns">
+      <button class="btn btn-secondary" style="flex:1" onclick="closeImgModal()">キャンセル</button>
+      <button class="btn btn-primary" style="flex:1" id="img-upload-btn" onclick="uploadImg()">アップロード</button>
+    </div>
+    <div id="img-upload-status" style="margin-top:10px; font-size:13px; color:var(--muted);"></div>
+  </div>
+</div>
+
+<!-- トースト -->
+<div class="toast" id="toast"></div>
+
+<script>
+const SUPABASE_URL = 'https://yxfwgfgrtspuyxrmvnnx.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_OP8qORksPmcDkNdAbaAvEg_dsT-HMB6';
+const PASSWORD = 'moffuorder2026';
+const { createClient } = supabase;
+const db = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+let stores = [];
+let items = [];
+let currentImgItemIdx = null;
+let selectedImgFile = null;
+let currentOrders = [];
+
+// ---- パスワード ----
+function checkPw() {
+  const v = document.getElementById('pw-input').value;
+  if (v === PASSWORD) {
+    sessionStorage.setItem('auth', '1');
+    document.getElementById('pw-screen').style.display = 'none';
+    init();
+  } else {
+    document.getElementById('pw-error').textContent = 'パスワードが違います';
+  }
+}
+if (sessionStorage.getItem('auth') === '1') {
+  document.getElementById('pw-screen').style.display = 'none';
+  window.addEventListener('DOMContentLoaded', init);
+}
+
+// ---- 初期化 ----
+async function init() {
+  const today = new Date().toISOString().slice(0,10);
+  document.getElementById('new-order-date').value = today;
+  await loadStores();
+  addItem();
+  setInterval(loadHistory, 30000);
+}
+
+async function loadStores() {
+  const { data } = await db.from('stores').select('*').order('name');
+  stores = data || [];
+  ['store-filter','new-store','hist-store'].forEach(id => {
+    const el = document.getElementById(id);
+    const base = id === 'hist-store' ? '<option value="">すべての店舗</option>' : '<option value="">選択してください</option>';
+    el.innerHTML = base + stores.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
+  });
+}
+
+function onStoreChange() {
+  if (document.getElementById('tab-history').style.display !== 'none') loadHistory();
+}
+
+// ---- タブ ----
+function switchTab(tab) {
+  document.getElementById('tab-new').style.display = tab === 'new' ? '' : 'none';
+  document.getElementById('tab-history').style.display = tab === 'history' ? '' : 'none';
+  document.querySelectorAll('.tab-btn').forEach((b,i) => b.classList.toggle('active', (i===0&&tab==='new')||(i===1&&tab==='history')));
+  if (tab === 'history') loadHistory();
+}
+
+// ---- 商品行 ----
+function addItem() {
+  const idx = items.length;
+  items.push({ id: genId(), name: '', qty: 1, price: 0, cost: 0, note: '', img: null });
+  renderItems();
+}
+
+function renderItems() {
+  const list = document.getElementById('items-list');
+  list.innerHTML = items.map((item, i) => `
+    <div class="item-row" id="item-row-${i}">
+      <div class="item-img-wrap" onclick="openImgModal(${i})">
+        ${item.img ? `<img src="${item.img}" alt="">` : `<div class="item-img-placeholder">📷<br>タップ</div>`}
+        <div class="img-overlay">画像を<br>変更</div>
+      </div>
+      <div>
+        <div class="item-details">
+          <input type="text" placeholder="商品名" value="${esc(item.name)}" oninput="items[${i}].name=this.value" style="width:100%; padding:8px 10px; border:1.5px solid var(--border); border-radius:8px; font-size:14px; outline:none; background:white;">
+          <div class="item-numbers" style="margin-top:6px;">
+            <div class="form-group" style="gap:3px;">
+              <label style="font-size:11px;">個数</label>
+              <input type="number" value="${item.qty}" min="1" oninput="items[${i}].qty=+this.value" style="width:70px; padding:7px 8px; border:1.5px solid var(--border); border-radius:8px; font-size:13px; outline:none;">
+            </div>
+            <div class="form-group" style="gap:3px;">
+              <label style="font-size:11px;">販売価格</label>
+              <input type="number" value="${item.price}" min="0" oninput="items[${i}].price=+this.value" style="width:90px; padding:7px 8px; border:1.5px solid var(--border); border-radius:8px; font-size:13px; outline:none;">
+            </div>
+            <div class="form-group" style="gap:3px;">
+              <label style="font-size:11px;">原価</label>
+              <input type="number" value="${item.cost}" min="0" oninput="items[${i}].cost=+this.value" style="width:80px; padding:7px 8px; border:1.5px solid var(--border); border-radius:8px; font-size:13px; outline:none;">
+            </div>
+          </div>
+          <input type="text" placeholder="📝 備考" value="${esc(item.note)}" oninput="items[${i}].note=this.value" style="margin-top:6px; width:100%; padding:7px 10px; border:1.5px solid var(--border); border-radius:8px; font-size:13px; outline:none; color:var(--muted);">
+        </div>
+      </div>
+      <button class="btn-remove" onclick="removeItem(${i})">×</button>
+    </div>
+  `).join('');
+}
+
+function removeItem(i) {
+  items.splice(i, 1);
+  renderItems();
+}
+
+function clearForm() {
+  items = [];
+  document.getElementById('new-store').value = '';
+  document.getElementById('new-delivery-date').value = '';
+  addItem();
+}
+
+// ---- 画像アップロード ----
+function openImgModal(idx) {
+  currentImgItemIdx = idx;
+  selectedImgFile = null;
+  document.getElementById('img-file-input').value = '';
+  document.getElementById('img-preview-wrap').innerHTML = items[idx].img
+    ? `<img class="img-preview" src="${items[idx].img}">`  : '';
+  document.getElementById('img-upload-status').textContent = '';
+  document.getElementById('img-modal').style.display = 'flex';
+}
+
+function closeImgModal() {
+  document.getElementById('img-modal').style.display = 'none';
+}
+
+function onImgSelected(e) {
+  selectedImgFile = e.target.files[0];
+  if (!selectedImgFile) return;
+  const url = URL.createObjectURL(selectedImgFile);
+  document.getElementById('img-preview-wrap').innerHTML = `<img class="img-preview" src="${url}">`;
+}
+
+async function uploadImg() {
+  if (!selectedImgFile) { closeImgModal(); return; }
+  const status = document.getElementById('img-upload-status');
+  status.textContent = 'アップロード中...';
+  const ext = selectedImgFile.name.split('.').pop();
+  const path = `products/${genId()}.${ext}`;
+  const { error } = await db.storage.from('product-images').upload(path, selectedImgFile, { upsert: true });
+  if (error) { status.textContent = 'エラー: ' + error.message; return; }
+  const { data } = db.storage.from('product-images').getPublicUrl(path);
+  items[currentImgItemIdx].img = data.publicUrl;
+  renderItems();
+  closeImgModal();
+  showToast('画像をアップロードしました');
+}
+
+// ---- 発注登録 ----
+async function submitOrder() {
+  const storeId = document.getElementById('new-store').value;
+  const orderDate = document.getElementById('new-order-date').value;
+  const deliveryDate = document.getElementById('new-delivery-date').value;
+  if (!storeId) { showToast('店舗を選択してください'); return; }
+  if (!orderDate) { showToast('発注日を入力してください'); return; }
+  if (items.filter(i => i.name).length === 0) { showToast('商品を入力してください'); return; }
+
+  const orderId = genId();
+  const { error: oe } = await db.from('orders').insert({
+    id: orderId, store_id: storeId, order_date: orderDate, delivery_date: deliveryDate
+  });
+  if (oe) { showToast('エラー: ' + oe.message); return; }
+
+  const orderItems = items.filter(i => i.name).map((item, i) => ({
+    id: item.id, order_id: orderId, name: item.name, qty: item.qty,
+    price: item.price, cost: item.cost, img: item.img || null, note: item.note, sort_order: i
+  }));
+  const { error: ie } = await db.from('order_items').insert(orderItems);
+  if (ie) { showToast('エラー: ' + ie.message); return; }
+
+  showToast('✅ 発注を登録しました！');
+  clearForm();
+  switchTab('history');
+}
+
+// ---- 発注履歴 ----
+async function loadHistory() {
+  const storeId = document.getElementById('hist-store').value;
+  const from = document.getElementById('hist-from').value;
+  const to = document.getElementById('hist-to').value;
+
+  let q = db.from('orders').select('*, stores(name), order_items(*)').order('created_at', { ascending: false });
+  if (storeId) q = q.eq('store_id', storeId);
+  if (from) q = q.gte('order_date', from);
+  if (to) q = q.lte('order_date', to);
+
+  const { data, error } = await q;
+  if (error) { document.getElementById('history-list').innerHTML = '<div class="loading">読み込みエラー</div>'; return; }
+  currentOrders = data || [];
+  renderHistory(currentOrders);
+}
+
+function renderHistory(orders) {
+  const el = document.getElementById('history-list');
+  if (!orders.length) { el.innerHTML = '<div class="loading">発注履歴がありません</div>'; return; }
+  el.innerHTML = orders.map(o => {
+    const items = o.order_items || [];
+    const total = items.reduce((s,i) => s + i.qty, 0);
+    return `
+      <div class="order-card" onclick="openDetail('${o.id}')">
+        <div class="order-card-header">
+          <div>
+            <div style="font-weight:700; font-size:15px;">${o.stores?.name || '不明'}</div>
+            <div class="order-meta">発注日: ${o.order_date} ／ 納品予定: ${o.delivery_date || '未定'}</div>
+          </div>
+          <div class="order-badge">${items.length}種 / ${total}個</div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function openDetail(orderId) {
+  const order = currentOrders.find(o => o.id === orderId);
+  if (!order) return;
+  const items = (order.order_items || []).sort((a,b) => a.sort_order - b.sort_order);
+  document.getElementById('modal-title').textContent = `${order.stores?.name || ''} 発注サマリー ${order.order_date}`;
+  document.getElementById('modal-meta').textContent = `発注日: ${order.order_date} ／ 納品予定: ${order.delivery_date || '未定'} ／ ${items.length}種 ${items.reduce((s,i)=>s+i.qty,0)}個`;
+  document.getElementById('modal-body').innerHTML = `
+    <div class="summary-grid">
+      ${items.map(item => `
+        <div class="summary-item">
+          ${item.img ? `<img src="${item.img}" alt="${esc(item.name)}">` : `<div class="no-img">画像なし</div>`}
+          <div class="item-title">${esc(item.name)}</div>
+          <div class="item-price">¥${item.price?.toLocaleString()}</div>
+          <div class="item-qty"><span class="qty-badge">${item.qty}個</span></div>
+          ${item.note ? `<div class="item-note-badge">📝 ${esc(item.note)}</div>` : ''}
+        </div>
+      `).join('')}
+    </div>
+  `;
+  document.getElementById('detail-modal').style.display = 'flex';
+}
+
+function closeModal() { document.getElementById('detail-modal').style.display = 'none'; }
+function printSummary() { window.print(); }
+
+// ---- CSV出力 ----
+function exportCSV() {
+  if (!currentOrders.length) { showToast('データがありません'); return; }
+  const rows = [['発注ID','店舗','発注日','納品予定日','商品名','個数','販売価格','原価','備考']];
+  currentOrders.forEach(o => {
+    (o.order_items||[]).forEach(i => {
+      rows.push([o.id, o.stores?.name||'', o.order_date, o.delivery_date||'', i.name, i.qty, i.price, i.cost, i.note||'']);
+    });
+  });
+  const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob = new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `発注履歴_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+}
+
+// ---- ユーティリティ ----
+function genId() { return 'mn' + Math.random().toString(36).slice(2,12); }
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+</script>
+</body>
+</html>
